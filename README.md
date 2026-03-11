@@ -8,5 +8,5 @@ OCR-D wrapper for the Eynollah inference.
 
 For CPU use:
 ```python
-python -m pip install .
+python -m pip install -e .[tests]
 ```
