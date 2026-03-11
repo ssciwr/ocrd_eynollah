@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel", "setuptools-ocrd"]
+
+[project]
+name = "ocrd_eynollah"
+authors = [
+    {name = "Tuyen Le", email = "ssc@uni-heidelberg.de"},
+    {name = "Dominic Kempf", email = "ssc@uni-heidelberg.de"},
+]
+description = "Wrapping Eynollah inference for the OCR-D framework"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = "==3.10"
+keywords = ["ocr", "ocr-d", "eynollah"]
+dependencies = [
+    "eynollah[training] @ git+https://github.com/qurator-spk/eynollah.git@main"
+]
+dynamic = ["version"]
+
+# https://pypi.org/classifiers/
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Other Audience",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Image Processing",
+]
+
+[project.optional-dependencies]
+tests = [
+    "pytest",
+]
+
+[project.scripts]
+oocrd-eynollah-inference = "ocrd_eynollah.eynollah_inference:cli"
+
+[project.urls]
+Homepage = "https://github.com/ssciwr/ocrd_eynollah"
+Repository = "https://github.com/ssciwr/ocrd_eynollah.git"
+
+[tool.setuptools]
+packages = ["ocrd_eynollah"]
+package-data = {"*" = ["ocrd-tool.json"]}

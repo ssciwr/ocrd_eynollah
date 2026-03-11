@@ -1,0 +1,63 @@
+{
+  "dockerhub": "ssciwr/ocrd_eynollah",
+  "git_url": "https://github.com/ssciwr/ocrd_eynollah",
+  "tools": {
+    "ocrd-eynollah-inference": {
+      "categories": [
+        "Layout analysis"
+      ],
+      "description": "Layout segmentation with Eynollah inference",
+      "executable": "ocrd-eynollah-inference",
+      "input_file_grp_cardinality": 1,
+      "output_file_grp_cardinality": 1,
+      "parameters": {
+        "model": {
+          "default": "eynollah-scale-bin-0109",
+          "description": "Path to the model directory",
+          "type": "string"
+        }
+      },
+      "resources": [
+        {
+          "description": "Trained Eynollah model on LabelStudio Ground Truth data. Options: pre-train, scale",
+          "name": "eynollah-scale-0109",
+          "type": "archive",
+          "size": 452894337,
+          "url": "https://heibox.uni-heidelberg.de/f/b3525ec2f7384054be30?dl=1"
+        },
+        {
+          "description": "Trained Eynollah model on LabelStudio Ground Truth data. Options: pre-train, scale, binarize",
+          "name": "eynollah-scale-bin-0109",
+          "type": "archive",
+          "size": 452894390,
+          "url": "https://heibox.uni-heidelberg.de/f/e65fe27aa79d4a3ab54c?dl=1"
+        },
+        {
+          "description": "Trained Eynollah model on LabelStudio Ground Truth data. Options: pre-train, scale, binarize, rotate not 90",
+          "name": "eynollah-scale-bin-ro-0115",
+          "type": "archive",
+          "size": 452895900,
+          "url": "https://heibox.uni-heidelberg.de/f/c2d510d7de0e401aa000?dl=1"
+        },
+        {
+          "description": "Trained Eynollah model on LabelStudio Ground Truth data. Options: pre-train, scale, binarize, rotate 90",
+          "name": "eynollah-scale-bin-ro-90-0116",
+          "type": "archive",
+          "size": 452894395,
+          "url": "https://heibox.uni-heidelberg.de/f/35e907b0012c47259374?dl=1"
+        },
+        {
+          "description": "Trained Eynollah model on LabelStudio Ground Truth data. Options: scale, binarize",
+          "name": "eynollah-scale-bin-no-pretrain-0226",
+          "type": "archive",
+          "size": 452881218,
+          "url": "https://heibox.uni-heidelberg.de/f/d2ba5e27e74c4b8fb628?dl=1"
+        }
+      ],
+      "steps": [
+        "layout/segmentation/region"
+      ]
+    }
+  },
+  "version": "0.0.1"
+}
