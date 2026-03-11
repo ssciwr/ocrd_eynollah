@@ -13,7 +13,7 @@ license = {text = "MIT"}
 requires-python = ">=3.10"
 keywords = ["ocr", "ocr-d", "eynollah"]
 dependencies = [
-    "eynollah[training] @ git+https://github.com/qurator-spk/eynollah.git@main"
+    "eynollah[training] @ git+https://github.com/kimlee87/eynollah.git@new_inference_color"
 ]
 dynamic = ["version"]
 
