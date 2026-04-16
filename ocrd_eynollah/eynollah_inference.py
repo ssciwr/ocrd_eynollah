@@ -10,7 +10,7 @@ from collections import defaultdict
 from skimage import measure
 from shapely.geometry import Polygon
 
-from ocrd import Processor, Workspace, OcrdPage, OcrdPageResult, OcrdPageResultImage
+from ocrd import Processor, OcrdPage, OcrdPageResult, OcrdPageResultImage
 from ocrd_models.ocrd_page import (
     CoordsType,
     TextRegionType,
@@ -20,6 +20,8 @@ from ocrd_models.ocrd_page import (
 from ocrd_utils import points_from_bbox, points_from_polygon
 from ocrd.decorators import ocrd_cli_options, ocrd_cli_wrap_processor
 from eynollah.training.inference import sbb_predict as EynollahInference
+
+from PIL import Image
 
 
 # color coding for Eynollah inference results,
@@ -35,18 +37,24 @@ eynollah_inference_colors = {
         None,
         None,
     ),  # background, same color as original
-    (231, 76, 60): (
-        "image",
+    (0, 204, 0): (
+        "artificial_boundary",
         ImageRegionType,
         "ImageRegion",
-        None,
-    ),  # image, orginally (0, 0, 255)
-    (52, 152, 219): (
+        "artificial_boundary",
+    ),
+    (231, 76, 60): (
         "text",
         TextRegionType,
         "TextRegion",
         None,
-    ),  # text, orginally (0, 125, 255)
+    ),  # text, orginally (0, 0, 255)
+    (52, 152, 219): (
+        "image",
+        ImageRegionType,
+        "ImageRegion",
+        None,
+    ),  # image, orginally (0, 125, 255)
     (230, 126, 34): (
         "heading",
         TextRegionType,
@@ -75,8 +83,8 @@ class EynollahInferenceProcessor(Processor):
         if not self.parameter or "model" not in self.parameter:
             raise ValueError("Parameters 'model' is required for Eynollah inference.")
 
-        model_dir = self.parameter["model"]
-        device = self.parameter.get(
+        model_dir = self.resolve_resource(self.parameter["model"])
+        device = self.parameter.get(  # will be used for Eynollah 0.7.0
             "device", "cuda"
         )  # default to 'cuda' if not provided
 
@@ -98,8 +106,8 @@ class EynollahInferenceProcessor(Processor):
             save_layout=dummy_img,  # replace the dummy image with the actual resulting layout
             ground_truth=None,  # no ground truth for inference
             xml_file=None,  # no xml file for reading order
-            cpu=(device == "cpu"),
-            out=None,  # no output directory for now
+            out=None,  # no output directory as we infer individual image
+            min_area=0,  # min area size for reading order detection
         )
 
         self.detector.start_new_session_and_model()
@@ -110,74 +118,7 @@ class EynollahInferenceProcessor(Processor):
         if hasattr(self, "detector"):
             del self.detector
 
-    def process_page_pcgts(
-        self, *input_pcgts: Optional[OcrdPage], page_id: Optional[str] = None
-    ) -> OcrdPageResult:
-        """Override process_page_pcgts of the Processor class to perform
-        Eynollah inference on the input page(s) and return the result as an OcrdPageResult.
-        """
-        assert input_pcgts
-        assert input_pcgts[0]
-        assert self.parameter  # default values or from CLI with -p or -P
-
-        pcgts = input_pcgts[0]
-        result = OcrdPageResult(pcgts)
-        page = pcgts.get_Page()
-
-        # get the image file path for the page
-        img_filename = page.imageFilename
-        img_filepath = os.path.join(self.workspace.directory, img_filename)
-
-        # update image file path in the EynollahInference instance
-        self.detector.image = img_filepath
-
-        self.logger.info("Running Eynollah inference on page %s", page_id)
-
-        # run inference and get the resulting layout
-        with tempfile.TemporaryDirectory() as temp_dir:
-            layout_path = Path(temp_dir) / f"{page_id}_layout.png"
-
-            # update the save_layout parameter in the EynollahInference instance
-            self.detector.save_layout = str(layout_path)
-
-            # run inference
-            inferred_result = self.detector.predict(image_dir=img_filepath)
-
-            # get the layout
-            img_seg_overlayed, only_layout = self.detector.visualize_model_output(
-                inferred_result,
-                self.detector.img_org,  # assined in predict method
-                self.detector.task,  # assined when initializing the EynollahInference instance
-            )
-
-        # convert segmentation mask to PAGE regions
-        self._add_regions_from_layout(page, only_layout)
-
-        # add output PAGE-XML to workspace
-        file_id = layout_path.stem
-
-        self.workspace.add_file(
-            ID=file_id,
-            file_grp=self.output_file_grp,
-            pageId=page_id,
-            mimetype="application/vnd.prima.page+xml",
-            local_filename=os.path.join(self.output_file_grp, file_id + ".xml"),
-            content=pcgts.to_xml(),
-        )
-
-        # record alternative image with layout overlayed
-        alt_img = AlternativeImageType(
-            filename=os.path.join(self.output_file_grp, file_id + "_overlayed.png"),
-            comments="Eynollah inference result overlayed on original image",
-        )
-        result.pcgts.Page.add_AlternativeImage(alt_img)
-
-        # also add the layout image as an OcrdPageResultImage
-        result.images.append(OcrdPageResultImage(only_layout, ".layout", alt_img))
-
-        return result
-
-    def _polygons_from_rgb_array(arr, skip_colors=[(0, 0, 0)]):
+    def _polygons_from_rgb_array(arr, skip_colors=((0, 0, 0),)):
         """Convert an RGB NumPy array into Shapely polygons grouped by RGB value."""
 
         polygons_by_color = defaultdict(list)
@@ -248,6 +189,79 @@ class EynollahInferenceProcessor(Processor):
                 getattr(page, f"add_{region_label}")(
                     region
                 )  # e.g. page.add_TextRegion(region)
+
+    def process_page_pcgts(
+        self, *input_pcgts: Optional[OcrdPage], page_id: Optional[str] = None
+    ) -> OcrdPageResult:
+        """Override process_page_pcgts of the Processor class to perform
+        Eynollah inference on the input page(s) and return the result as an OcrdPageResult.
+        """
+        assert input_pcgts
+        assert input_pcgts[0]
+        assert self.parameter  # default values or from CLI with -p or -P
+
+        pcgts = input_pcgts[0]
+        result = OcrdPageResult(pcgts)
+        page = pcgts.get_Page()
+
+        # get the image file path for the page
+        img_filename = page.imageFilename
+        img_filepath = os.path.join(self.workspace.directory, img_filename)
+
+        # update image file path in the EynollahInference instance
+        self.detector.image = img_filepath
+
+        self.logger.info("Running Eynollah inference on page %s", page_id)
+
+        # run inference and get the resulting layout
+        with tempfile.TemporaryDirectory() as temp_dir:
+            layout_path = Path(temp_dir) / f"{page_id}_layout.png"
+
+            # update the save_layout parameter in the EynollahInference instance
+            self.detector.save_layout = str(layout_path)
+
+            # run inference
+            inferred_result = self.detector.predict(image_dir=img_filepath)
+
+            # get the layout
+            img_seg_overlayed, only_layout = self.detector.visualize_model_output(
+                inferred_result,
+                self.detector.img_org,  # assigned in predict method
+                self.detector.task,  # assigned when initializing the EynollahInference instance
+            )
+
+            # save the layout image
+            cv2.imwrite(str(layout_path), only_layout)
+
+        # convert segmentation mask to PAGE regions
+        # self._add_regions_from_layout(page, only_layout)
+
+        # convert layout to image
+        only_layout_img = Image.fromarray(only_layout.astype(np.uint8))
+
+        # add output PAGE-XML to workspace
+        file_id = layout_path.stem
+
+        # self.workspace.add_file(
+        #     ID=file_id,
+        #     file_grp=self.output_file_grp,
+        #     pageId=page_id,
+        #     mimetype="application/vnd.prima.page+xml",
+        #     local_filename=os.path.join(self.output_file_grp, file_id + ".xml"),
+        #     content=pcgts.to_xml(),
+        # )
+
+        # record alternative image with layout overlayed
+        alt_img = AlternativeImageType(
+            filename=os.path.join(self.output_file_grp, file_id + "_overlayed.png"),
+            comments="Eynollah inference result overlayed on original image",
+        )
+        page.add_AlternativeImage(alt_img)
+
+        # also add the layout image as an OcrdPageResultImage
+        result.images.append(OcrdPageResultImage(only_layout_img, ".layout", alt_img))
+
+        return result
 
 
 @click.command()

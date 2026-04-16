@@ -139,3 +139,9 @@ cython_debug/
 
 # VS Code settings
 .vscode/
+
+# data
+data/*
+
+# workspace for testing
+myworkspace/*

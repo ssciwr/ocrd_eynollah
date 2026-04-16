@@ -12,7 +12,7 @@
       "output_file_grp_cardinality": 1,
       "parameters": {
         "model": {
-          "default": "eynollah-scale-bin-0109",
+          "default": "eynollah-scale-bin-20260325-artbound-noheadings",
           "description": "Path to the model directory",
           "type": "string"
         },
@@ -27,36 +27,57 @@
           "description": "Trained Eynollah model on LabelStudio Ground Truth data. Options: pre-train, scale",
           "name": "eynollah-scale-0109",
           "type": "archive",
-          "size": 452894337,
+          "size": 410549648,
+          "path_in_archive": ".",
           "url": "https://heibox.uni-heidelberg.de/f/b3525ec2f7384054be30?dl=1"
         },
         {
           "description": "Trained Eynollah model on LabelStudio Ground Truth data. Options: pre-train, scale, binarize",
           "name": "eynollah-scale-bin-0109",
           "type": "archive",
-          "size": 452894390,
+          "size": 410787113,
+          "path_in_archive": ".",
           "url": "https://heibox.uni-heidelberg.de/f/e65fe27aa79d4a3ab54c?dl=1"
         },
         {
           "description": "Trained Eynollah model on LabelStudio Ground Truth data. Options: pre-train, scale, binarize, rotate not 90",
           "name": "eynollah-scale-bin-ro-0115",
           "type": "archive",
-          "size": 452895900,
+          "size": 411333845,
+          "path_in_archive": ".",
           "url": "https://heibox.uni-heidelberg.de/f/c2d510d7de0e401aa000?dl=1"
         },
         {
           "description": "Trained Eynollah model on LabelStudio Ground Truth data. Options: pre-train, scale, binarize, rotate 90",
           "name": "eynollah-scale-bin-ro-90-0116",
           "type": "archive",
-          "size": 452894395,
+          "size": 410841296,
+          "path_in_archive": ".",
           "url": "https://heibox.uni-heidelberg.de/f/35e907b0012c47259374?dl=1"
         },
         {
-          "description": "Trained Eynollah model on LabelStudio Ground Truth data. Options: scale, binarize",
+          "description": "Trained Eynollah model on LabelStudio Ground Truth data without pre-trained model. Options: scale, binarize",
           "name": "eynollah-scale-bin-no-pretrain-0226",
           "type": "archive",
-          "size": 452881218,
+          "size": 408560123,
+          "path_in_archive": "scale-bin-no-pretrain",
           "url": "https://heibox.uni-heidelberg.de/f/d2ba5e27e74c4b8fb628?dl=1"
+        },
+        {
+          "description": "Trained Eynollah model on LabelStudio Ground Truth data. Options: pre-train, scale, with artificial boundaries, 10px buffer",
+          "name": "eynollah-scale-bin-w-art-boundaries-20260320",
+          "type": "archive",
+          "size": 410469005,
+          "path_in_archive": "scale-bin",
+          "url": "https://heibox.uni-heidelberg.de/f/c956e55a939744b39d91?dl=1"
+        },
+        {
+          "description": "Trained Eynollah model on LabelStudio Ground Truth data. Options: pre-train, scale, with artificial boundaries, 10px buffer, without heading class",
+          "name": "eynollah-scale-bin-20260325-artbound-noheadings",
+          "type": "archive",
+          "size": 410866141,
+          "path_in_archive": "scale-bin",
+          "url": "https://heibox.uni-heidelberg.de/f/4c142a162f654383b8b9?dl=1"
         }
       ],
       "steps": [

@@ -13,7 +13,9 @@ license = {text = "MIT"}
 requires-python = ">=3.10"
 keywords = ["ocr", "ocr-d", "eynollah"]
 dependencies = [
-    "eynollah[training] @ git+https://github.com/kimlee87/eynollah.git@new_inference_color"
+    "eynollah[training] @ git+https://github.com/kimlee87/eynollah.git@new_inference_color",
+    "ocrd==3.3.0",
+    "gdown==5.2.0",
 ]
 dynamic = ["version"]
 
@@ -33,7 +35,7 @@ tests = [
 ]
 
 [project.scripts]
-oocrd-eynollah-inference = "ocrd_eynollah.eynollah_inference:cli"
+ocrd-eynollah-inference = "ocrd_eynollah.eynollah_inference:cli"
 
 [project.urls]
 Homepage = "https://github.com/ssciwr/ocrd_eynollah"
