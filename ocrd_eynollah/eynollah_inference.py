@@ -118,7 +118,9 @@ class EynollahInferenceProcessor(Processor):
         if hasattr(self, "detector"):
             del self.detector
 
-    def _polygons_from_rgb_array(arr, skip_colors=((0, 0, 0),)):
+    def _polygons_from_rgb_array(
+        self, arr: np.ndarray, skip_colors=((0, 0, 0),)
+    ) -> dict[tuple[int, int, int], list[Polygon]]:
         """Convert an RGB NumPy array into Shapely polygons grouped by RGB value."""
 
         polygons_by_color = defaultdict(list)
@@ -153,7 +155,7 @@ class EynollahInferenceProcessor(Processor):
         return polygons_by_color
 
     def _add_regions_from_layout(
-        self, page: OcrdPage, layout_mask: np.ndarray, skip_colors=[(0, 0, 0)]
+        self, page: OcrdPage, layout_mask: np.ndarray, skip_colors=((0, 0, 0),)
     ) -> None:
         """Convert segmentation mask to PAGE regions."""
 
@@ -234,7 +236,9 @@ class EynollahInferenceProcessor(Processor):
             cv2.imwrite(str(layout_path), only_layout)
 
         # convert segmentation mask to PAGE regions
-        # self._add_regions_from_layout(page, only_layout)
+        print("Converting layout to PAGE regions...")
+        print(f"Layout image shape: {only_layout.shape}")  # for debugging
+        self._add_regions_from_layout(page, only_layout)
 
         # convert layout to image
         only_layout_img = Image.fromarray(only_layout.astype(np.uint8))
@@ -242,14 +246,14 @@ class EynollahInferenceProcessor(Processor):
         # add output PAGE-XML to workspace
         file_id = layout_path.stem
 
-        # self.workspace.add_file(
-        #     ID=file_id,
-        #     file_grp=self.output_file_grp,
-        #     pageId=page_id,
-        #     mimetype="application/vnd.prima.page+xml",
-        #     local_filename=os.path.join(self.output_file_grp, file_id + ".xml"),
-        #     content=pcgts.to_xml(),
-        # )
+        self.workspace.add_file(
+            ID=file_id,
+            file_grp=self.output_file_grp,
+            pageId=page_id,
+            mimetype="application/vnd.prima.page+xml",
+            local_filename=os.path.join(self.output_file_grp, file_id + ".xml"),
+            content=pcgts.to_xml(),
+        )
 
         # record alternative image with layout overlayed
         alt_img = AlternativeImageType(
