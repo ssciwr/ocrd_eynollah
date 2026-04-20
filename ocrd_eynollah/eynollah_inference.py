@@ -65,7 +65,7 @@ eynollah_inference_colors = {
         "separator",
         ImageRegionType,
         "ImageRegion",
-        None,
+        "separator",
     ),  # separator, orginally (125, 125, 125)
 }
 
