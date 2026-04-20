@@ -17,7 +17,7 @@ from ocrd_models.ocrd_page import (
     ImageRegionType,
     AlternativeImageType,
 )
-from ocrd_utils import points_from_bbox, points_from_polygon
+from ocrd_utils import points_from_polygon
 from ocrd.decorators import ocrd_cli_options, ocrd_cli_wrap_processor
 from eynollah.training.inference import sbb_predict as EynollahInference
 
@@ -28,7 +28,7 @@ from PIL import Image
 # used in visualize_model_output() method of sbb_predict class
 # the below colors are extracted from kimlee87/eynollah.git@new_inference_color
 # the original colors from eynollah.git@main are commented for reference
-# colors here are in RGB, not BGR as in Eynollah visualize_model_output()
+# colors here are the same as in Eynollah visualize_model_output()
 eynollah_inference_colors = {
     # (R, G, B): (label, region type, region label, subtype)
     (255, 255, 255): (
@@ -43,25 +43,25 @@ eynollah_inference_colors = {
         "ImageRegion",
         "artificial_boundary",
     ),
-    (231, 76, 60): (
+    (60, 76, 231): (
         "text",
         TextRegionType,
         "TextRegion",
         None,
     ),  # text, orginally (0, 0, 255)
-    (52, 152, 219): (
+    (219, 152, 52): (
         "image",
         ImageRegionType,
         "ImageRegion",
         None,
     ),  # image, orginally (0, 125, 255)
-    (230, 126, 34): (
+    (34, 126, 230): (
         "heading",
         TextRegionType,
         "TextRegion",
         "heading",
     ),  # heading, orginally (125, 0, 255)
-    (155, 89, 182): (
+    (182, 89, 155): (
         "separator",
         ImageRegionType,
         "ImageRegion",
@@ -143,7 +143,7 @@ class EynollahInferenceProcessor(Processor):
                 coords = [(float(c[1]), float(c[0])) for c in contour]
 
                 if len(coords) >= 3:
-                    poly = Polygon(coords)
+                    poly = Polygon(coords)  # assuming the polygon does not have holes
 
                     if poly.is_valid and poly.area > 0:
                         polygons_by_color[color].append(poly)
@@ -182,15 +182,23 @@ class EynollahInferenceProcessor(Processor):
             if region_type is None:
                 continue  # skip background
 
+            length = len(polygons)
+            self.logger.debug(
+                "Found %d polygons for color %s (label: %s)", length, color, label
+            )
+            zero_padding = len(str(length))
             for poly in polygons:
-                coords = CoordsType(points_from_polygon(poly))
+                coords = CoordsType(points_from_polygon(poly.exterior.coords))
                 region = region_type(
-                    id=f"region_{region_idx+1:04d}_{label}", Coords=coords, type=subtype
+                    id=f"region_{region_idx+1:0{zero_padding}d}_{label}",
+                    Coords=coords,
+                    type=subtype,
                 )
                 # add the region to the PAGE XML structure
                 getattr(page, f"add_{region_label}")(
                     region
                 )  # e.g. page.add_TextRegion(region)
+                region_idx += 1
 
     def process_page_pcgts(
         self, *input_pcgts: Optional[OcrdPage], page_id: Optional[str] = None
@@ -232,38 +240,38 @@ class EynollahInferenceProcessor(Processor):
                 self.detector.task,  # assigned when initializing the EynollahInference instance
             )
 
-            # save the layout image
-            cv2.imwrite(str(layout_path), only_layout)
-
         # convert segmentation mask to PAGE regions
-        print("Converting layout to PAGE regions...")
-        print(f"Layout image shape: {only_layout.shape}")  # for debugging
+        self.logger.info(
+            "Converting Eynollah layout to PAGE regions for page %s", page_id
+        )
+        self.logger.debug("Layout image shape: %s", only_layout.shape)  # for debugging
         self._add_regions_from_layout(page, only_layout)
 
         # convert layout to image
-        only_layout_img = Image.fromarray(only_layout.astype(np.uint8))
-
-        # add output PAGE-XML to workspace
-        file_id = layout_path.stem
-
-        self.workspace.add_file(
-            ID=file_id,
-            file_grp=self.output_file_grp,
-            pageId=page_id,
-            mimetype="application/vnd.prima.page+xml",
-            local_filename=os.path.join(self.output_file_grp, file_id + ".xml"),
-            content=pcgts.to_xml(),
+        # [:, :, ::-1] converts BGR to RGB for PIL
+        only_layout_img = Image.fromarray(
+            only_layout[:, :, ::-1].astype(np.uint8), mode="RGB"
+        )
+        img_seg_overlayed_img = Image.fromarray(
+            img_seg_overlayed[:, :, ::-1].astype(np.uint8), mode="RGB"
         )
 
-        # record alternative image with layout overlayed
+        # record alternative image with layout and layout overlayed on original image
         alt_img = AlternativeImageType(
-            filename=os.path.join(self.output_file_grp, file_id + "_overlayed.png"),
-            comments="Eynollah inference result overlayed on original image",
+            comments="Eynollah inference layout result",
         )
         page.add_AlternativeImage(alt_img)
+        result.images.append(OcrdPageResultImage(only_layout_img, "layout", alt_img))
 
-        # also add the layout image as an OcrdPageResultImage
-        result.images.append(OcrdPageResultImage(only_layout_img, ".layout", alt_img))
+        alt_img_overlayed = AlternativeImageType(
+            comments="Eynollah inference layout overlayed on original image",
+        )
+        page.add_AlternativeImage(alt_img_overlayed)
+        result.images.append(
+            OcrdPageResultImage(
+                img_seg_overlayed_img, "layout_overlayed", alt_img_overlayed
+            )
+        )
 
         return result
 
