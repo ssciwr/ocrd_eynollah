@@ -15,6 +15,8 @@ from ocrd_models.ocrd_page import (
     CoordsType,
     TextRegionType,
     ImageRegionType,
+    LineDrawingRegionType,
+    GraphicRegionType,
     AlternativeImageType,
 )
 from ocrd_utils import points_from_polygon
@@ -39,21 +41,21 @@ eynollah_inference_colors = {
     ),  # background, same color as original
     (0, 204, 0): (
         "artificial_boundary",
-        ImageRegionType,
-        "ImageRegion",
+        LineDrawingRegionType,
+        "LineDrawingRegion",
         "artificial_boundary",
     ),
     (60, 76, 231): (
         "text",
         TextRegionType,
         "TextRegion",
-        None,
+        "text",
     ),  # text, orginally (0, 0, 255)
     (219, 152, 52): (
         "image",
         ImageRegionType,
         "ImageRegion",
-        None,
+        "image",
     ),  # image, orginally (0, 125, 255)
     (34, 126, 230): (
         "heading",
@@ -63,10 +65,20 @@ eynollah_inference_colors = {
     ),  # heading, orginally (125, 0, 255)
     (182, 89, 155): (
         "separator",
-        ImageRegionType,
-        "ImageRegion",
+        GraphicRegionType,
+        "GraphicRegion",
         "separator",
     ),  # separator, orginally (125, 125, 125)
+}
+
+eynollah_inference_colors_noheading = {
+    (34, 126, 230): (
+        "separator",
+        GraphicRegionType,
+        "GraphicRegion",
+        "separator",
+    ),  # in case the model does not predict heading, the color for heading will be used for separator
+    (182, 89, 155): None,
 }
 
 
@@ -83,7 +95,14 @@ class EynollahInferenceProcessor(Processor):
         if not self.parameter or "model" not in self.parameter:
             raise ValueError("Parameters 'model' is required for Eynollah inference.")
 
-        model_dir = self.resolve_resource(self.parameter["model"])
+        model_name = self.parameter["model"]
+        self.eynollah_inference_colors = eynollah_inference_colors
+        if (
+            "noheading" in model_name
+        ):  # TODO: find another way in case model name has different pattern
+            self.eynollah_inference_colors.update(eynollah_inference_colors_noheading)
+
+        model_dir = self.resolve_resource(model_name)
         device = self.parameter.get(  # will be used for Eynollah 0.7.0
             "device", "cuda"
         )  # default to 'cuda' if not provided
@@ -168,7 +187,7 @@ class EynollahInferenceProcessor(Processor):
 
         region_idx = 0
         for color, polygons in polygons_by_color.items():
-            info = eynollah_inference_colors.get(color, None)
+            info = self.eynollah_inference_colors.get(color, None)
 
             if info is None:
                 self.logger.warning(
@@ -192,8 +211,10 @@ class EynollahInferenceProcessor(Processor):
                 region = region_type(
                     id=f"region_{region_idx+1:0{zero_padding}d}_{label}",
                     Coords=coords,
-                    type=subtype,
                 )
+                if subtype and hasattr(region, "set_type"):
+                    region.set_type(subtype)
+
                 # add the region to the PAGE XML structure
                 getattr(page, f"add_{region_label}")(
                     region
