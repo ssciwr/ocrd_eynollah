@@ -33,6 +33,8 @@ from PIL import Image
 # colors here are the same as in Eynollah visualize_model_output()
 eynollah_inference_colors = {
     # (R, G, B): (label, region type, region label, subtype)
+    # subtype should comply with the allowed values in PAGE schema (...TypeSimpleType)
+    # https://ocr-d.de/en/gt-guidelines/pagexml/Simple_Type.html
     (255, 255, 255): (
         "background",
         None,
@@ -43,19 +45,19 @@ eynollah_inference_colors = {
         "artificial_boundary",
         LineDrawingRegionType,
         "LineDrawingRegion",
-        "artificial_boundary",
+        None,  # no type attribute in LineDrawingRegion
     ),
     (60, 76, 231): (
         "text",
         TextRegionType,
         "TextRegion",
-        "text",
+        "paragraph",  # here, caption or header/footer is also possibe but we use paragraph for simplicity
     ),  # text, orginally (0, 0, 255)
     (219, 152, 52): (
         "image",
         ImageRegionType,
         "ImageRegion",
-        "image",
+        None,  # no type attribute in ImageRegion
     ),  # image, orginally (0, 125, 255)
     (34, 126, 230): (
         "heading",
@@ -67,17 +69,21 @@ eynollah_inference_colors = {
         "separator",
         GraphicRegionType,
         "GraphicRegion",
-        "separator",
+        "other",  # other defined types of GraphicRegion don't seem to fit here
     ),  # separator, orginally (125, 125, 125)
 }
 
 eynollah_inference_colors_noheading = {
-    (34, 126, 230): (
+    (
+        34,
+        126,
+        230,
+    ): (  # in case the model does not predict heading, the color for heading will be used for separator
         "separator",
         GraphicRegionType,
         "GraphicRegion",
-        "separator",
-    ),  # in case the model does not predict heading, the color for heading will be used for separator
+        "other",
+    ),
     (182, 89, 155): None,
 }
 
@@ -191,7 +197,7 @@ class EynollahInferenceProcessor(Processor):
 
             if info is None:
                 self.logger.warning(
-                    "Color %s not found in the results of Eynollah inference, skipping",
+                    "Skipping color %s",
                     color,
                 )
                 continue
