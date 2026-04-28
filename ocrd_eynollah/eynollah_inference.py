@@ -265,7 +265,9 @@ class EynollahInferenceProcessor(Processor):
 
         try:
             polygon = Polygon(shell=shell, holes=valid_holes)
-            if polygon.is_valid and not polygon.is_empty:
+            if (
+                not polygon.is_empty
+            ):  # some polygons can be self intersecting, aka invalid but we still skip them
                 return polygon
             else:
                 return None
