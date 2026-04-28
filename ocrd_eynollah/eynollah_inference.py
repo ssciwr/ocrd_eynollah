@@ -7,8 +7,9 @@ import tempfile
 import cv2
 import numpy as np
 from collections import defaultdict
-from skimage import measure
 from shapely.geometry import Polygon
+from collections.abc import Generator
+from typing import TypedDict
 
 from ocrd import Processor, OcrdPage, OcrdPageResult, OcrdPageResultImage
 from ocrd_models.ocrd_page import (
@@ -16,7 +17,7 @@ from ocrd_models.ocrd_page import (
     TextRegionType,
     ImageRegionType,
     LineDrawingRegionType,
-    GraphicRegionType,
+    SeparatorRegionType,
     AlternativeImageType,
 )
 from ocrd_utils import points_from_polygon
@@ -32,7 +33,7 @@ from PIL import Image
 # the original colors from eynollah.git@main are commented for reference
 # colors here are the same as in Eynollah visualize_model_output()
 eynollah_inference_colors = {
-    # (R, G, B): (label, region type, region label, subtype)
+    # (B, G, R): (label, region type, region label, subtype)
     # subtype should comply with the allowed values in PAGE schema (...TypeSimpleType)
     # https://ocr-d.de/en/gt-guidelines/pagexml/Simple_Type.html
     (255, 255, 255): (
@@ -67,9 +68,9 @@ eynollah_inference_colors = {
     ),  # heading, orginally (125, 0, 255)
     (182, 89, 155): (
         "separator",
-        GraphicRegionType,
-        "GraphicRegion",
-        "other",  # other defined types of GraphicRegion don't seem to fit here
+        SeparatorRegionType,
+        "SeparatorRegion",
+        None,  # no type attribute in SeparatorRegion
     ),  # separator, orginally (125, 125, 125)
 }
 
@@ -80,12 +81,17 @@ eynollah_inference_colors_noheading = {
         230,
     ): (  # in case the model does not predict heading, the color for heading will be used for separator
         "separator",
-        GraphicRegionType,
-        "GraphicRegion",
-        "other",
+        SeparatorRegionType,
+        "SeparatorRegion",
+        None,
     ),
     (182, 89, 155): None,
 }
+
+
+class PolygonDict(TypedDict):  # for type hinting
+    shell: list[tuple[float, float]]
+    holes: list[list[tuple[float, float]]]
 
 
 # wrap Eynollah inference into an ocrd processor class
@@ -143,8 +149,134 @@ class EynollahInferenceProcessor(Processor):
         if hasattr(self, "detector"):
             del self.detector
 
+    def _build_contours_hierarchy(
+        self, contours: list[np.ndarray], hierarchy: np.ndarray
+    ) -> list[dict]:
+        """Build a hierarchy of contours based on the hierarchy information from OpenCV.
+
+        Args:
+            contours (list[np.ndarray]): List of contours as returned by cv2.findContours.
+                Each contour is a NumPy array of shape (n_points, 1, 2)
+                where n_points is the number of points in the contour.
+            hierarchy (np.ndarray): Hierarchy information as returned by cv2.findContours.
+                It is a NumPy array of shape (n_contours, 4)
+                where each row corresponds to a contour and contains the indices of
+                the next, previous, first child, and parent contours.
+                `hierarchy` should be `hierarchy[0]` if cv2.findContours is called with cv2.RETR_TREE.
+
+        Returns:
+            list[dict]: A list of dictionaries representing the contour hierarchy.
+                Each dictionary has the following keys:
+                - "contour": The contour points as a NumPy array of shape (n_points, 2).
+                - "children": A list of indices of child contours in the returned contour list.
+                - "parent": The index of the parent contour in the returned contour list,
+                    or -1 if there is no parent.
+        """
+        nodes = []
+
+        for i, cnt in enumerate(contours):
+            nodes.append(
+                {
+                    "contour": cnt.reshape(
+                        -1, 2
+                    ),  # reshape to 2 columns for x and y coordinates, infer the number of points with -1 placeholder
+                    "children": [],
+                    "parent": hierarchy[i][3],  # parent index
+                }
+            )
+
+        # link children to parents
+        for i, h in enumerate(hierarchy):
+            parent_idx = h[3]
+            if parent_idx != -1:  # if it has a parent
+                nodes[parent_idx]["children"].append(i)  # add index of child
+
+        return nodes
+
+    def _extract_polygons_from_hierarchy_contours(
+        self, nodes: list[dict], idx: int, is_outer: bool = True
+    ) -> Generator[PolygonDict, None, None]:
+        """Recursively extract polygons from the contour hierarchy.
+
+        Args:
+            nodes (list[dict]): The contour hierarchy as returned by `_build_contours_hierarchy`.
+            idx (int): The index of the current contour node to process.
+            is_outer (bool): Whether the current contour is an outer contour (True) or a hole (False).
+                If there is a child inside a hole, this child is also an outer contour (island in the hole).
+
+        Yields:
+            PolygonDict: A dictionary representing a polygon with the following keys:
+                - "shell": A list of (x, y) tuples representing the exterior boundary of the polygon.
+                - "holes": A list of lists of (x, y) tuples, where each inner list represents a hole in the polygon.
+        """
+        node = nodes[idx]
+
+        polygon = {"shell": node["contour"], "holes": []}
+
+        for child_idx in node["children"]:
+            if is_outer:
+                # children of outer = holes
+                hole = nodes[child_idx]["contour"]
+                polygon["holes"].append(hole)
+
+                # grandchildren of outer = islands in holes
+                for grandchild_idx in nodes[child_idx]["children"]:
+                    yield from self._extract_polygons_from_hierarchy_contours(
+                        nodes, grandchild_idx, is_outer=True
+                    )  # islands are also outer
+            else:
+                # children of inner = islands in holes
+                yield from self._extract_polygons_from_hierarchy_contours(
+                    nodes, child_idx, is_outer=True
+                )  # islands are also outer
+        yield polygon
+
+    def _close_ring(self, ring: np.ndarray) -> np.ndarray:
+        """Ensure that a ring of coordinates is closed
+        by checking the first and last points and appending
+        the first point to the end if they are not the same.
+        """
+        if not np.array_equal(ring[0], ring[-1]):
+            ring = np.vstack([ring, ring[0]])
+        return ring
+
+    def _is_valid_ring(self, ring: np.ndarray) -> bool:
+        """Check if a ring of coordinates is valid for creating a polygon.
+        A valid ring must have at least 4 points (including the closing point)
+        and must be closed (the first and last points must be the same).
+        """
+        return len(ring) >= 4 and np.array_equal(ring[0], ring[-1])
+
+    def _create_polygon(
+        self, shell: np.ndarray, holes: list[np.ndarray]
+    ) -> Polygon | None:
+        """Create a Shapely Polygon from a shell and holes, ensuring that the rings are valid.
+        If the shell or any hole is not a valid ring, return None.
+        """
+        shell = self._close_ring(shell)
+        if not self._is_valid_ring(shell):
+            return None
+
+        valid_holes = []
+        for hole in holes:
+            hole = self._close_ring(hole)
+            if self._is_valid_ring(hole):
+                valid_holes.append(hole)
+
+        try:
+            polygon = Polygon(shell=shell, holes=valid_holes)
+            if (
+                not polygon.is_empty
+            ):  # some polygons can be self intersecting, aka invalid but we still skip them
+                return polygon
+            else:
+                return None
+        except Exception as e:
+            self.logger.warning("Failed to create polygon: %s", e)
+            return None
+
     def _polygons_from_rgb_array(
-        self, arr: np.ndarray, skip_colors=((0, 0, 0),)
+        self, arr: np.ndarray, skip_colors=((255, 255, 255),)
     ) -> dict[tuple[int, int, int], list[Polygon]]:
         """Convert an RGB NumPy array into Shapely polygons grouped by RGB value."""
 
@@ -160,27 +292,49 @@ class EynollahInferenceProcessor(Processor):
 
             # Create mask for this RGB value
             mask = np.all(arr == color, axis=-1)
+            mask = (
+                mask.astype(np.uint8) * 255
+            )  # convert boolean mask to uint8 (0 and 255) for contour detection
 
-            # Extract contours
-            contours = measure.find_contours(mask.astype(np.uint8), level=0.5)
+            # Extract contours with opencv
+            contours, hierarchy = cv2.findContours(
+                mask,
+                mode=cv2.RETR_TREE,  # retrieve all contours and reconstruct the full hierarchy of nested contours
+                method=cv2.CHAIN_APPROX_SIMPLE,
+            )
+            if hierarchy is None:  # no contours found
+                continue
 
-            for contour in contours:
-                coords = [(float(c[1]), float(c[0])) for c in contour]
+            hierarchy = hierarchy[
+                0
+            ]  # cv2.findContours returns hierarchy with shape (1, n_contours, 4)
 
-                if len(coords) >= 3:
-                    poly = Polygon(coords)  # assuming the polygon does not have holes
+            # extract polygons from contours and hierarchy
+            nodes = self._build_contours_hierarchy(contours, hierarchy)
+            polygon_dicts = []
 
-                    if poly.is_valid and poly.area > 0:
-                        polygons_by_color[color].append(poly)
+            for i, node in enumerate(nodes):
+                if (
+                    node["parent"] == -1
+                ):  # only process outer contours (those without parent)
+                    polygon_dicts.extend(
+                        list(
+                            self._extract_polygons_from_hierarchy_contours(
+                                nodes, i, is_outer=True
+                            )
+                        )
+                    )
 
-        # # Merge polygons per color
-        # for color, polys in polygons_by_color.items():
-        #     polygons_by_color[color] = unary_union(polys)
+            # convert polygon dicts to shapely Polygons and add to the result
+            for poly_dict in polygon_dicts:
+                polygon = self._create_polygon(poly_dict["shell"], poly_dict["holes"])
+                if polygon is not None:
+                    polygons_by_color[color].append(polygon)
 
         return polygons_by_color
 
     def _add_regions_from_layout(
-        self, page: OcrdPage, layout_mask: np.ndarray, skip_colors=((0, 0, 0),)
+        self, page: OcrdPage, layout_mask: np.ndarray, skip_colors=((255, 255, 255),)
     ) -> None:
         """Convert segmentation mask to PAGE regions."""
 
@@ -225,6 +379,20 @@ class EynollahInferenceProcessor(Processor):
                 getattr(page, f"add_{region_label}")(
                     region
                 )  # e.g. page.add_TextRegion(region)
+
+                # handle holes in the polygon as separate regions with different id
+                for hole in poly.interiors:
+                    hole_coords = CoordsType(points_from_polygon(hole.coords))
+                    hole_region = region_type(
+                        id=f"region_{region_idx+1:0{zero_padding}d}_{label}_hole",
+                        Coords=hole_coords,
+                    )
+                    if subtype and hasattr(hole_region, "set_type"):
+                        hole_region.set_type(subtype)
+
+                    getattr(page, f"add_{region_label}")(
+                        hole_region
+                    )  # e.g. page.add_TextRegion(hole_region)
                 region_idx += 1
 
     def process_page_pcgts(
