@@ -297,20 +297,20 @@ class EynollahInferenceProcessor(Processor):
             )  # convert boolean mask to uint8 (0 and 255) for contour detection
 
             # Extract contours with opencv
-            contours, hierachy = cv2.findContours(
+            contours, hierarchy = cv2.findContours(
                 mask,
                 mode=cv2.RETR_TREE,  # retrieve all contours and reconstruct the full hierarchy of nested contours
                 method=cv2.CHAIN_APPROX_SIMPLE,
             )
-            if hierachy is None:  # no contours found
+            if hierarchy is None:  # no contours found
                 continue
 
-            hierachy = hierachy[
+            hierarchy = hierarchy[
                 0
             ]  # cv2.findContours returns hierarchy with shape (1, n_contours, 4)
 
             # extract polygons from contours and hierarchy
-            nodes = self._build_contours_hierarchy(contours, hierachy)
+            nodes = self._build_contours_hierarchy(contours, hierarchy)
             polygon_dicts = []
 
             for i, node in enumerate(nodes):
