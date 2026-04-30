@@ -15,7 +15,7 @@ keywords = ["ocr", "ocr-d", "eynollah"]
 dependencies = [
     "eynollah[training] @ git+https://github.com/kimlee87/eynollah.git@new_inference_color",
     "ocrd==3.3.0",
-    "gdown==5.2.0",
+    "gdown==6.0.0",
 ]
 dynamic = ["version"]
 
