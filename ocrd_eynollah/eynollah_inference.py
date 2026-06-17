@@ -141,7 +141,9 @@ class EynollahInferenceProcessor(Processor):
             min_area=0,  # min area size for reading order detection
         )
 
-        self.detector.start_new_session_and_model()
+        # the below line might cause issues while running in parallel
+        # move it to process_page_pcgts for testing
+        # self.detector.start_new_session_and_model()
 
     def shutdown(self) -> None:
         # TODO check if we need to close tensorflow session
@@ -424,6 +426,9 @@ class EynollahInferenceProcessor(Processor):
 
             # update the save_layout parameter in the EynollahInference instance
             self.detector.save_layout = str(layout_path)
+
+            # start detector session and load model
+            self.detector.start_new_session_and_model()
 
             # run inference
             inferred_result = self.detector.predict(image_dir=img_filepath)
