@@ -429,8 +429,8 @@ class EynollahInferenceProcessor(Processor):
             # update the save_layout parameter in the EynollahInference instance
             self.detector.save_layout = str(layout_path)
 
-            t_load_model = time.time()
             # start detector session and load model
+            t_load_model = time.time()
             self.detector.start_new_session_and_model()
 
             self.logger.info(
@@ -440,13 +440,27 @@ class EynollahInferenceProcessor(Processor):
             )
 
             # run inference
+            t_predict = time.time()
             inferred_result = self.detector.predict(image_dir=img_filepath)
 
+            self.logger.info(
+                "Inference completed in %.2f seconds for page %s.",
+                time.time() - t_predict,
+                page_id,
+            )
+
             # get the layout
+            t_visualize = time.time()
             img_seg_overlayed, only_layout = self.detector.visualize_model_output(
                 inferred_result,
                 self.detector.img_org,  # assigned in predict method
                 self.detector.task,  # assigned when initializing the EynollahInference instance
+            )
+
+            self.logger.info(
+                "Visualization completed in %.2f seconds for page %s.",
+                time.time() - t_visualize,
+                page_id,
             )
 
         # convert segmentation mask to PAGE regions
