@@ -26,6 +26,8 @@ from eynollah.training.inference import sbb_predict as EynollahInference
 
 from PIL import Image
 
+import time
+
 
 # color coding for Eynollah inference results,
 # used in visualize_model_output() method of sbb_predict class
@@ -427,8 +429,15 @@ class EynollahInferenceProcessor(Processor):
             # update the save_layout parameter in the EynollahInference instance
             self.detector.save_layout = str(layout_path)
 
+            t_load_model = time.time()
             # start detector session and load model
             self.detector.start_new_session_and_model()
+
+            self.logger.info(
+                "Model loaded in %.2f seconds. Starting inference on page %s.",
+                time.time() - t_load_model,
+                page_id,
+            )
 
             # run inference
             inferred_result = self.detector.predict(image_dir=img_filepath)
