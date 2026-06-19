@@ -1,6 +1,6 @@
 # ocrd_eynollah
 
-OCR-D wrapper for the Eynollah inference.
+OCR-D wrapper for the Eynollah inference. Note: [eynollah](https://github.com/qurator-spk/eynollah) itself is also usable as an OCR-D processor. As we are not using the full eynollah system though, but restrict ourselves to inferring a layout segmentation model. To serve this limited use case, we needed to wrap this into a custom OCR-D processor. If this code was co-installable with our other processors, it would live in [ecpo_ocrd](https://github.com/ssciwr/ecpo_ocrd).
 
 **Work in progress.**
 
