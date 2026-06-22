@@ -1,7 +1,7 @@
 from shapely.geometry import Polygon
 
 from ocrd_eynollah.polygon import (
-    cut_open_polygon_points,
+    cut_open_polygon,
     page_points_from_polygon,
 )
 
@@ -22,7 +22,7 @@ def test_cut_open_polygon_preserves_area_and_connects_hole():
         holes=[[(5, 5), (5, 15), (15, 15), (15, 5)]],
     )
 
-    points = cut_open_polygon_points(polygon)
+    points = cut_open_polygon(polygon)
     page_points = [
         tuple(map(int, point.split(",")))
         for point in page_points_from_polygon(polygon).split()
