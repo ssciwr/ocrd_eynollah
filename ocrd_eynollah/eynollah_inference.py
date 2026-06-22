@@ -368,6 +368,9 @@ class EynollahInferenceProcessor(Processor):
             )
             zero_padding = len(str(length))
             for poly in polygons:
+                if poly.area < 20:
+                    continue
+                
                 coords = CoordsType(points=page_points_from_polygon(poly))
                 region = region_type(
                     id=f"region_{region_idx+1:0{zero_padding}d}_{label}",

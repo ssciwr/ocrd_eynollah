@@ -163,4 +163,4 @@ def cut_open_polygon(poly: Polygon,
 
 def page_points_from_polygon(poly: Polygon) -> str:
     """Convert a Shapely polygon to a PAGE coordinate sequence."""
-    return " ".join("%i,%i" % point for point in cut_open_polygon(poly, holes=None, max_depth=5))
+    return " ".join("%i,%i" % point for point in cut_open_polygon(poly, holes=None, max_depth=3))
