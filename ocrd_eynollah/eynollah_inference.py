@@ -20,9 +20,10 @@ from ocrd_models.ocrd_page import (
     SeparatorRegionType,
     AlternativeImageType,
 )
-from ocrd_utils import points_from_polygon
 from ocrd.decorators import ocrd_cli_options, ocrd_cli_wrap_processor
 from eynollah.training.inference import sbb_predict as EynollahInference
+
+from ocrd_eynollah.polygon import page_points_from_polygon
 
 from PIL import Image
 
@@ -371,7 +372,7 @@ class EynollahInferenceProcessor(Processor):
             )
             zero_padding = len(str(length))
             for poly in polygons:
-                coords = CoordsType(points_from_polygon(poly.exterior.coords))
+                coords = CoordsType(points=page_points_from_polygon(poly))
                 region = region_type(
                     id=f"region_{region_idx+1:0{zero_padding}d}_{label}",
                     Coords=coords,
@@ -383,20 +384,6 @@ class EynollahInferenceProcessor(Processor):
                 getattr(page, f"add_{region_label}")(
                     region
                 )  # e.g. page.add_TextRegion(region)
-
-                # handle holes in the polygon as separate regions with different id
-                for hole in poly.interiors:
-                    hole_coords = CoordsType(points_from_polygon(hole.coords))
-                    hole_region = region_type(
-                        id=f"region_{region_idx+1:0{zero_padding}d}_{label}_hole",
-                        Coords=hole_coords,
-                    )
-                    if subtype and hasattr(hole_region, "set_type"):
-                        hole_region.set_type(subtype)
-
-                    getattr(page, f"add_{region_label}")(
-                        hole_region
-                    )  # e.g. page.add_TextRegion(hole_region)
                 region_idx += 1
 
     def process_page_pcgts(
