@@ -469,7 +469,14 @@ class EynollahInferenceProcessor(Processor):
             "Converting Eynollah layout to PAGE regions for page %s", page_id
         )
         self.logger.debug("Layout image shape: %s", only_layout.shape)  # for debugging
+
+        t_layout = time.time()
         self._add_regions_from_layout(page, only_layout)
+        self.logger.info(
+            "Converted Eynollah layout to PAGE regions in %.2f seconds for page %s.",
+            time.time() - t_layout,
+            page_id,
+        )
 
         # convert layout to image
         # [:, :, ::-1] converts BGR to RGB for PIL
