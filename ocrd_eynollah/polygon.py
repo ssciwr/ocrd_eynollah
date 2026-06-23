@@ -2,6 +2,8 @@ from shapely.geometry import LineString, Polygon, MultiPolygon, GeometryCollecti
 from shapely.ops import orient
 from dataclasses import dataclass
 import heapq
+from scipy.spatial import cKDTree
+import numpy as np
 
 
 def _integer_ring_points(coords) -> list[tuple[int, int]]:
@@ -49,7 +51,7 @@ def _find_hole_bridge(
     shell: list[tuple[int, int]],
     hole: list[tuple[int, int]],
     shell_k: int = 8,
-) -> tuple[int, int]:
+) -> tuple[int | None, int | None]:
     """Find a valid bridge between shell and hole.
 
     Instead of testing every shell x hole pair, only consider the k nearest
@@ -59,19 +61,24 @@ def _find_hole_bridge(
     if not shell or not hole:
         return None, None
 
-    candidate_heap: list[tuple[int, int, int]] = []
-    # entries: (dist2, shell_idx, hole_idx)
+    shell_arr = np.asarray(shell, dtype=float)
+    hole_arr = np.asarray(hole, dtype=float)
 
-    for hole_idx, (hx, hy) in enumerate(hole):
-        nearest_shell = heapq.nsmallest(
-            min(shell_k, len(shell)),
-            range(len(shell)),
-            key=lambda i: (shell[i][0] - hx) ** 2 + (shell[i][1] - hy) ** 2,
-        )
+    tree = cKDTree(shell_arr)
+    k = min(shell_k, len(shell))
 
-        for shell_idx in nearest_shell:
-            sx, sy = shell[shell_idx]
-            dist2 = (sx - hx) ** 2 + (sy - hy) ** 2
+    dists, idxs = tree.query(hole_arr, k=k)
+
+    # normalize shapes for k=1
+    if k == 1:
+        dists = dists[:, None]
+        idxs = idxs[:, None]
+
+    candidate_heap: list[tuple[float, int, int]] = []
+    for hole_idx in range(len(hole)):
+        for j in range(k):
+            shell_idx = int(idxs[hole_idx, j])
+            dist2 = float(dists[hole_idx, j]) ** 2
             candidate_heap.append((dist2, shell_idx, hole_idx))
 
     heapq.heapify(candidate_heap)
