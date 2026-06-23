@@ -29,6 +29,11 @@ from PIL import Image
 
 import time
 
+import logging
+
+from ocrd_eynollah.pagexml import ocrd_regions_to_polygons
+
+from ocrd_eynollah.utils import overlay_outline
 
 # color coding for Eynollah inference results,
 # used in visualize_model_output() method of sbb_predict class
@@ -371,8 +376,19 @@ class EynollahInferenceProcessor(Processor):
                 "Found %d polygons for color %s (label: %s)", length, color, label
             )
             zero_padding = len(str(length))
+            add_region = getattr(page, f"add_{region_label}")
             for poly in polygons:
-                coords = CoordsType(points=page_points_from_polygon(poly))
+                if poly.area < 100:  # skip small polygons
+                    continue
+
+                coords = CoordsType(
+                    points=page_points_from_polygon(
+                        poly,
+                        max_loop=3,
+                        backlog_area_ratio_threshold=0.01,
+                        min_area=100.0,
+                    )
+                )
                 region = region_type(
                     id=f"region_{region_idx+1:0{zero_padding}d}_{label}",
                     Coords=coords,
@@ -381,9 +397,7 @@ class EynollahInferenceProcessor(Processor):
                     region.set_type(subtype)
 
                 # add the region to the PAGE XML structure
-                getattr(page, f"add_{region_label}")(
-                    region
-                )  # e.g. page.add_TextRegion(region)
+                add_region(region)  # e.g. page.add_TextRegion(region)
                 region_idx += 1
 
     def process_page_pcgts(
@@ -482,6 +496,53 @@ class EynollahInferenceProcessor(Processor):
                 img_seg_overlayed_img, "layout_overlayed", alt_img_overlayed
             )
         )
+
+        # draw debug image if level is DEBUG
+        if self.logger.isEnabledFor(logging.DEBUG):
+            # draw saved polygon for debugging
+            org_img = Image.open(img_filepath)
+            img_arr = np.array(org_img)
+            debug_label_polys = {}
+
+            for _, info in self.eynollah_inference_colors.items():
+                if info is None:
+                    continue
+                label, region_type, region_label, subtype = info
+                if region_type is None:
+                    continue  # skip background
+
+                debug_regions = getattr(page, f"get_{region_label}")()
+                if subtype:
+                    debug_regions = [
+                        r for r in debug_regions if r.get_type() == subtype
+                    ]
+
+                self.logger.debug(
+                    "Collecting %d regions of type %s (subtype: %s) for debugging",
+                    len(debug_regions),
+                    region_label,
+                    subtype,
+                )
+
+                debug_polys = ocrd_regions_to_polygons(debug_regions)
+
+                self.logger.debug(
+                    "There are %d polygons for label: %s to draw for debugging",
+                    len(debug_polys),
+                    label,
+                )
+
+                debug_label_polys[label] = debug_polys
+
+            # draw overlayed debug image
+            debug_img = overlay_outline(Image.fromarray(img_arr), debug_label_polys)
+            debug_alt_img = AlternativeImageType(
+                comments="Debug image with saved polygons drawn on original image",
+            )
+            page.add_AlternativeImage(debug_alt_img)
+            result.images.append(
+                OcrdPageResultImage(debug_img, "debug_saved_polygons", debug_alt_img)
+            )
 
         return result
 
