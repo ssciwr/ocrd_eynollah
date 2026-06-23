@@ -1,6 +1,7 @@
 from shapely.geometry import LineString, Polygon, MultiPolygon, GeometryCollection
 from shapely.ops import orient
 from dataclasses import dataclass
+import heapq
 
 
 def _integer_ring_points(coords) -> list[tuple[int, int]]:
@@ -18,26 +19,65 @@ def _integer_ring_points(coords) -> list[tuple[int, int]]:
 
 
 def _bridge_is_inside_polygon(poly: Polygon, shell_point, hole_point) -> bool:
+    if shell_point == hole_point:
+        return False
+
     bridge = LineString([shell_point, hole_point])
+
     if bridge.length == 0 or not bridge.covered_by(poly):
         return False
 
-    boundary_intersection = bridge.intersection(poly.boundary)
-    return boundary_intersection.length == 0
+    # avoid using intersection to reduce runtime
+    # remove the endpoints so touching the shell/hole boundary at endpoints
+    # is allowed, but the interior of the bridge may not touch/cross boundary.
+    eps = min(0.5, bridge.length * 1e-6)
+    if bridge.length <= 2 * eps:
+        return False
+
+    inner = LineString(
+        [
+            bridge.interpolate(eps),
+            bridge.interpolate(bridge.length - eps),
+        ]
+    )
+
+    return poly.covers(inner) and not inner.intersects(poly.boundary)
 
 
 def _find_hole_bridge(
-    poly: Polygon, shell: list[tuple[int, int]], hole: list[tuple[int, int]]
+    poly: Polygon,
+    shell: list[tuple[int, int]],
+    hole: list[tuple[int, int]],
+    shell_k: int = 8,
 ) -> tuple[int, int]:
-    candidates = []
-    for shell_idx, shell_point in enumerate(shell):
-        for hole_idx, hole_point in enumerate(hole):
-            dist2 = (shell_point[0] - hole_point[0]) ** 2 + (
-                shell_point[1] - hole_point[1]
-            ) ** 2
-            candidates.append((dist2, shell_idx, hole_idx))
+    """Find a valid bridge between shell and hole.
 
-    for _, shell_idx, hole_idx in sorted(candidates):
+    Instead of testing every shell x hole pair, only consider the k nearest
+    shell vertices for each hole vertex, then test all those candidates in
+    increasing distance order.
+    """
+    if not shell or not hole:
+        return None, None
+
+    candidate_heap: list[tuple[int, int, int]] = []
+    # entries: (dist2, shell_idx, hole_idx)
+
+    for hole_idx, (hx, hy) in enumerate(hole):
+        nearest_shell = heapq.nsmallest(
+            min(shell_k, len(shell)),
+            range(len(shell)),
+            key=lambda i: (shell[i][0] - hx) ** 2 + (shell[i][1] - hy) ** 2,
+        )
+
+        for shell_idx in nearest_shell:
+            sx, sy = shell[shell_idx]
+            dist2 = (sx - hx) ** 2 + (sy - hy) ** 2
+            candidate_heap.append((dist2, shell_idx, hole_idx))
+
+    heapq.heapify(candidate_heap)
+
+    while candidate_heap:
+        _, shell_idx, hole_idx = heapq.heappop(candidate_heap)
         if _bridge_is_inside_polygon(poly, shell[shell_idx], hole[hole_idx]):
             return shell_idx, hole_idx
 
@@ -84,8 +124,8 @@ def _polygon_holes(poly: Polygon, min_area: float = 100.0) -> list[HoleData]:
 
 
 def _cut_open_polygon_points(
-    poly: Polygon, holes: list[list[tuple[int, int]]]
-) -> tuple[list[tuple[int, int]], list[list[tuple[int, int]]]]:
+    poly: Polygon, holes: list[HoleData]
+) -> tuple[list[tuple[int, int]], list[HoleData]]:
     """Return PAGE points for ``poly`` with holes represented by duplicate cuts.
 
     PAGE XML has a single polygon coordinate sequence per region. For polygons
@@ -110,7 +150,7 @@ def _cut_open_polygon_points(
         return [], holes
 
     bridges: dict[int, list[list[tuple[int, int]]]] = {}
-    backlog_holes: list[list[tuple[int, int]]] = []
+    backlog_holes: list[HoleData] = []
 
     for hole in holes:
         shell_idx, hole_idx = _find_hole_bridge(poly, shell, hole.points)
