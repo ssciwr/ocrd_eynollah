@@ -1,5 +1,6 @@
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, Polygon, MultiPolygon, GeometryCollection
 from shapely.ops import orient
+from dataclasses import dataclass
 
 
 def _integer_ring_points(coords) -> list[tuple[int, int]]:
@@ -51,20 +52,40 @@ def _rotate_ring(
 
 
 def _valid_ring(ring: list[tuple[int, int]]) -> bool:
-    return len(set(ring)) >= 3
+    """Return True if the ring has at least 3 unique points.
+    Avoid using len of a large ring.
+    """
+    seen = set()
+    for p in ring:
+        seen.add(p)
+        if len(seen) >= 3:
+            return True
+    return False
 
 
-def _polygon_holes(poly: Polygon) -> list[list[tuple[int, int]]]:
-    holes = []
+@dataclass(slots=True)
+class HoleData:
+    points: list[tuple[int, int]]
+    area: float
+
+
+def _polygon_holes(poly: Polygon, min_area: float = 100.0) -> list[HoleData]:
+    holes: list[HoleData] = []
     for interior in poly.interiors:
         hole = _integer_ring_points(interior.coords)
-        if _valid_ring(hole):
-            holes.append(hole)
+        if not _valid_ring(hole):
+            continue
+
+        area = Polygon(interior).area
+        if area >= min_area:
+            holes.append(HoleData(points=hole, area=area))
+
     return holes
 
 
-def _cut_open_polygon_points(poly: Polygon, holes: list[list[tuple[int, int]]]
-                             ) -> tuple[list[tuple[int, int]], list[list[tuple[int, int]]]]:
+def _cut_open_polygon_points(
+    poly: Polygon, holes: list[list[tuple[int, int]]]
+) -> tuple[list[tuple[int, int]], list[list[tuple[int, int]]]]:
     """Return PAGE points for ``poly`` with holes represented by duplicate cuts.
 
     PAGE XML has a single polygon coordinate sequence per region. For polygons
@@ -92,32 +113,41 @@ def _cut_open_polygon_points(poly: Polygon, holes: list[list[tuple[int, int]]]
     backlog_holes: list[list[tuple[int, int]]] = []
 
     for hole in holes:
-        if not _valid_ring(hole):
-            continue
-
-        shell_idx, hole_idx = _find_hole_bridge(poly, shell, hole)
+        shell_idx, hole_idx = _find_hole_bridge(poly, shell, hole.points)
         if shell_idx is None or hole_idx is None:
             backlog_holes.append(hole)
             continue
 
-        bridges.setdefault(shell_idx, []).append(_rotate_ring(hole, hole_idx))
+        bridges.setdefault(shell_idx, []).append(_rotate_ring(hole.points, hole_idx))
 
     points: list[tuple[int, int]] = []
+    append = points.append
+    extend = points.extend
+    get_bridges = bridges.get
+
     for shell_idx, shell_point in enumerate(shell):
-        points.append(shell_point)
-        for hole in bridges.get(shell_idx, []):
-            hole_start = hole[0]
-            points.append(hole_start)
-            points.extend(hole[1:])
-            points.append(hole_start)
-            points.append(shell_point)
+        append(shell_point)
+        shell_bridges = get_bridges(shell_idx)
+        if not shell_bridges:
+            continue
+
+        for h in shell_bridges:
+            hole_start = h[0]
+            append(hole_start)
+            extend(h[1:])
+            append(hole_start)
+            append(shell_point)
 
     return points, backlog_holes
 
 
-def cut_open_polygon(poly: Polygon,
-                     holes: list[list[tuple[int, int]]] | None = None,
-                     max_depth: int = 5) -> list[tuple[int, int]]:
+def cut_open_polygon(
+    poly: Polygon,
+    holes: list[HoleData] | None = None,
+    max_loop: int = 3,
+    backlog_area_ratio_threshold: float | None = 0.01,
+    min_area: float = 100.0,
+) -> list[tuple[int, int]]:
     """Return a new PAGE polygon with holes cut open as duplicate bridges.
 
     The function converts a polygon with interiors into a single coordinate
@@ -133,34 +163,87 @@ def cut_open_polygon(poly: Polygon,
     5. Stop when either:
        - all holes have been cut open, or
        - a pass makes no progress / yields an invalid shell, or
-       - ``max_depth`` recursive passes have been attempted.
+       - the ratio of unresolved hole area to polygon area is below the threshold, or
+       - ``max_loop`` runs have been attempted.
     """
-    if max_depth < 1:
-        raise ValueError("max_depth must be at least 1")
-    
-    holes = holes if holes is not None else _polygon_holes(poly)
-    
+    if max_loop < 1:
+        raise ValueError("max_loop must be at least 1")
+
+    poly = orient(poly, sign=1.0)
+
+    total_poly_area = poly.area
+
+    # assume that all holes are valid and have been filtered by min_area
+    holes = holes if holes is not None else _polygon_holes(poly, min_area=min_area)
+
     if not holes:
-        shell = _integer_ring_points(orient(poly, sign=1.0).exterior.coords)
+        shell = _integer_ring_points(poly.exterior.coords)
         return shell if _valid_ring(shell) else []
-    
-    points, backlog_holes = _cut_open_polygon_points(poly, holes)
 
-    # no valid shell could be constructed, 
-    # or all holes have been cut open,
-    # or we have reached maximum recursion depth
-    if not points or not backlog_holes or max_depth == 1:
-        return points
-    
-    # rebuild polygon and retry remaining holes
-    new_poly = Polygon(points)
-    if new_poly.is_empty:
-        return points
-    
-    return cut_open_polygon(new_poly, backlog_holes, max_depth - 1)
+    current_poly = poly
+    current_holes = holes
+    points: list[tuple[int, int]] = []
+
+    for _ in range(max_loop):
+        points, backlog_holes = _cut_open_polygon_points(current_poly, current_holes)
+
+        # invalid shell
+        if not points:
+            return []
+
+        # all holes resolved
+        if not backlog_holes:
+            return points
+
+        # early stop if unsolved holes are too small relative to the polygon area
+        if backlog_area_ratio_threshold is not None and total_poly_area > 0:
+            backlog_area = sum(h.area for h in backlog_holes)
+            if backlog_area / total_poly_area < backlog_area_ratio_threshold:
+                return points
+
+        # rebuild polygon from flattened points and retry unresolved holes
+        new_poly = Polygon(points)
+        if new_poly.is_empty:
+            return points
+
+        current_poly = new_poly
+        current_holes = backlog_holes
+
+    return points
 
 
-
-def page_points_from_polygon(poly: Polygon) -> str:
+def page_points_from_polygon(
+    poly: Polygon,
+    max_loop: int = 3,
+    backlog_area_ratio_threshold: float | None = 0.01,
+    min_area: float = 100.0,
+) -> str:
     """Convert a Shapely polygon to a PAGE coordinate sequence."""
-    return " ".join("%i,%i" % point for point in cut_open_polygon(poly, holes=None, max_depth=3))
+    points = cut_open_polygon(
+        poly,
+        holes=None,
+        max_loop=max_loop,
+        backlog_area_ratio_threshold=backlog_area_ratio_threshold,
+        min_area=min_area,
+    )
+    return " ".join(f"{x},{y}" for x, y in points)
+
+
+def flatten_polygon_geometry(geometry) -> list[Polygon]:
+    """Return all polygon components from a Shapely geometry."""
+    if geometry.is_empty:
+        return []
+
+    if isinstance(geometry, Polygon):
+        return [geometry]
+
+    if isinstance(geometry, MultiPolygon):
+        return list(geometry.geoms)
+
+    if isinstance(geometry, GeometryCollection):
+        result = []
+        for geom in geometry.geoms:
+            result.extend(flatten_polygon_geometry(geom))
+        return result
+
+    return []
