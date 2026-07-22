@@ -14,7 +14,7 @@ requires-python = ">=3.10"
 keywords = ["ocr", "ocr-d", "eynollah"]
 dependencies = [
     "eynollah[training] @ git+https://github.com/kimlee87/eynollah.git@new_inference_color",
-    "ocrd==3.3.0",
+    "ocrd==3.13.2",
     "gdown==5.2.0", # has to be 5.2.0 to work with ocrd 3.3.0
     "tensorflow==2.12.0",
     "keras==2.12.0",
