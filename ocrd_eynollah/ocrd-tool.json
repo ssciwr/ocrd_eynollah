@@ -20,6 +20,11 @@
           "default": "cuda",
           "description": "Device to run the inference on (e.g., 'cpu' or 'cuda')",
           "type": "string"
+        },
+        "save_images": {
+          "default": true,
+          "description": "Save the layout image and the layout overlayed on the original image as files of the output file group (FILEID suffixes _layout and _layout_overlayed). They are not referenced as AlternativeImage in the PAGE-XML, so later processors still use the original image",
+          "type": "boolean"
         }
       },
       "resources": [
