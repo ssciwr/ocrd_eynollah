@@ -18,7 +18,6 @@ from ocrd_models.ocrd_page import (
     ImageRegionType,
     LineDrawingRegionType,
     SeparatorRegionType,
-    AlternativeImageType,
 )
 from ocrd.decorators import ocrd_cli_options, ocrd_cli_wrap_processor
 from eynollah.training.inference import sbb_predict as EynollahInference
@@ -487,22 +486,16 @@ class EynollahInferenceProcessor(Processor):
             img_seg_overlayed[:, :, ::-1].astype(np.uint8), mode="RGB"
         )
 
-        # record alternative image with layout and layout overlayed on original image
-        alt_img = AlternativeImageType(
-            comments="Eynollah inference layout result",
-        )
-        page.add_AlternativeImage(alt_img)
-        result.images.append(OcrdPageResultImage(only_layout_img, "layout", alt_img))
-
-        alt_img_overlayed = AlternativeImageType(
-            comments="Eynollah inference layout overlayed on original image",
-        )
-        page.add_AlternativeImage(alt_img_overlayed)
-        result.images.append(
-            OcrdPageResultImage(
-                img_seg_overlayed_img, "layout_overlayed", alt_img_overlayed
+        # Save the layout and the layout overlayed on the original image as files
+        # of the output file group, but not as AlternativeImage: later processors
+        # (e.g. the OCR) would use the most recent AlternativeImage instead of the
+        # original image, i.e. get crops with the layout drawn over the text.
+        # alternative_image=None makes OCR-D add them to the METS only.
+        if self.parameter["save_images"]:
+            result.images.append(OcrdPageResultImage(only_layout_img, "layout", None))
+            result.images.append(
+                OcrdPageResultImage(img_seg_overlayed_img, "layout_overlayed", None)
             )
-        )
 
         # draw debug image if level is DEBUG
         if self.logger.isEnabledFor(logging.DEBUG):
@@ -543,12 +536,9 @@ class EynollahInferenceProcessor(Processor):
 
             # draw overlayed debug image
             debug_img = overlay_outline(Image.fromarray(img_arr), debug_label_polys)
-            debug_alt_img = AlternativeImageType(
-                comments="Debug image with saved polygons drawn on original image",
-            )
-            page.add_AlternativeImage(debug_alt_img)
+            # not an AlternativeImage either, see above
             result.images.append(
-                OcrdPageResultImage(debug_img, "debug_saved_polygons", debug_alt_img)
+                OcrdPageResultImage(debug_img, "debug_saved_polygons", None)
             )
 
         return result
